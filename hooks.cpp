@@ -47,6 +47,8 @@ namespace Hooks {
     float storagePistonColor[3] = {0.6f, 0.4f, 0.2f};
     float storageBarrelColor[3] = {0.9f, 0.8f, 0.2f};
 
+    std::vector<ESPObject> espObjects;
+
     void hkActorTick(SDK::Actor* self) {
         if (self) {
             if (self->isLocalPlayer()) {
@@ -88,7 +90,6 @@ namespace Hooks {
         oLerpMotion(self, delta);
     }
 
-    // Helper to calculate aiming angles from source to destination
     SDK::Vector2 CalculateAngles(const SDK::Vector3& from, const SDK::Vector3& to) {
         SDK::Vector3 delta = SDK::Vector3(to.x - from.x, to.y - from.y, to.z - from.z);
         float hyp = sqrtf(delta.x * delta.x + delta.z * delta.z);
@@ -103,6 +104,37 @@ namespace Hooks {
         if (self && self->isLocalPlayer()) {
             SDK::Vector3 localPos = self->getPosition();
             std::vector<SDK::Player*> targets; 
+
+            espObjects.clear();
+
+            SDK::Matrix viewMatrix = *(SDK::Matrix*)(Memory::GetBaseAddress() + 0x2A00000);
+
+            SDK::BlockSource* region = self->getRegion();
+            if (region) {
+                auto blockEntities = region->getBlockEntities();
+                for (auto* blockEntity : blockEntities) {
+                    if (blockEntity) {
+                        SDK::Vector3 pos = blockEntity->getPosition();
+                        SDK::Vector2 screen;
+                        if (SDK::WorldToScreen(pos, screen, viewMatrix, 1920, 1080)) {
+                            int type = blockEntity->getType();
+                            int mappedType = -1;
+                            
+                            if (type == 1) mappedType = 1;       
+                            else if (type == 2) mappedType = 2;  
+                            else if (type == 8) mappedType = 3;  
+                            else if (type == 6) mappedType = 4;  
+                            else if (type == 10) mappedType = 5; 
+                            else if (type == 15) mappedType = 6; 
+                            
+                            if (mappedType != -1) {
+                                float dist = localPos.distance(pos);
+                                espObjects.push_back({mappedType, screen, dist});
+                            }
+                        }
+                    }
+                }
+            }
 
             if (killauraEnabled) {
                 for (auto* target : targets) {

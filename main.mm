@@ -86,76 +86,58 @@ static void DrawStorageBox(CGContextRef context, CGRect box, UIColor *color, NSS
     CGContextRef context = UIGraphicsGetCurrentContext();
     if (!context) return;
     
-    CGRect espBox = CGRectMake(rect.size.width / 2.0 - 50, rect.size.height / 2.0 - 100, 100, 200);
-    
-    if (Hooks::espEnabled) {
-        UIColor *c = ColorFromFloat(Hooks::espColor);
-        CGContextSetStrokeColorWithColor(context, c.CGColor);
-        CGContextSetLineWidth(context, 2.0);
-        CGContextStrokeRect(context, espBox);
-        
-        NSString *text = @"Enemy Player [15m]";
-        NSDictionary *attributes = @{
-            NSFontAttributeName: [UIFont systemFontOfSize:12.0 weight:UIFontWeightBold],
-            NSForegroundColorAttributeName: c
-        };
-        [text drawAtPoint:CGPointMake(espBox.origin.x, espBox.origin.y - 20) withAttributes:attributes];
-    }
-    
-    if (Hooks::tracerEnabled) {
-        UIColor *c = ColorFromFloat(Hooks::tracerColor);
-        CGContextSetStrokeColorWithColor(context, c.CGColor);
-        CGContextSetLineWidth(context, 1.5);
-        
-        CGPoint screenBottom = CGPointMake(rect.size.width / 2.0, rect.size.height / 2.0);
-        CGPoint targetFeet = CGPointMake(espBox.origin.x + espBox.size.width / 2.0, espBox.origin.y + espBox.size.height / 2.0);
-        
-        CGContextBeginPath(context);
-        CGContextMoveToPoint(context, screenBottom.x, screenBottom.y);
-        CGContextAddLineToPoint(context, targetFeet.x, targetFeet.y);
-        CGContextStrokePath(context);
-    }
-
     for (const auto& obj : Hooks::espObjects) {
         UIColor *color = nil;
         NSString *name = nil;
         bool isEnabled = false;
+        CGRect boxRect = CGRectZero;
 
         switch (obj.type) {
-            case 1:
+            case 0: // Player ESP
+                isEnabled = Hooks::espEnabled;
+                color = ColorFromFloat(Hooks::espColor);
+                name = [NSString stringWithFormat:@"Player [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 25, obj.screenPos.y - 50, 50, 100);
+                break;
+            case 1: // Chest
                 isEnabled = Hooks::storageChestEnabled;
                 color = ColorFromFloat(Hooks::storageChestColor);
                 name = [NSString stringWithFormat:@"Chest [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
                 break;
-            case 2:
+            case 2: // Ender Chest
                 isEnabled = Hooks::storageEnderChestEnabled;
                 color = ColorFromFloat(Hooks::storageEnderChestColor);
                 name = [NSString stringWithFormat:@"Ender Chest [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
                 break;
-            case 3:
+            case 3: // Hopper
                 isEnabled = Hooks::storageHopperEnabled;
                 color = ColorFromFloat(Hooks::storageHopperColor);
                 name = [NSString stringWithFormat:@"Hopper [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
                 break;
-            case 4:
+            case 4: // Spawner
                 isEnabled = Hooks::storageSpawnerEnabled;
                 color = ColorFromFloat(Hooks::storageSpawnerColor);
                 name = [NSString stringWithFormat:@"Spawner [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 20, obj.screenPos.y - 20, 40, 40);
                 break;
-            case 5:
+            case 5: // Piston
                 isEnabled = Hooks::storagePistonEnabled;
                 color = ColorFromFloat(Hooks::storagePistonColor);
                 name = [NSString stringWithFormat:@"Piston [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
                 break;
-            case 6:
+            case 6: // Barrel
                 isEnabled = Hooks::storageBarrelEnabled;
                 color = ColorFromFloat(Hooks::storageBarrelColor);
                 name = [NSString stringWithFormat:@"Barrel [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
                 break;
         }
 
-        if (isEnabled && color) {
-            CGRect boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
+        if (isEnabled && color && !CGRectIsEmpty(boxRect)) {
             DrawStorageBox(context, boxRect, color, name);
 
             if (Hooks::tracerEnabled) {

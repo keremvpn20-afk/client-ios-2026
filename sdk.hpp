@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <math.h>
+#include <vector>
 
 namespace SDK {
 
@@ -27,7 +28,6 @@ namespace SDK {
         float m[16];
     };
 
-    // Helper to project 3D world coordinates to 2D screen coordinates
     inline bool WorldToScreen(const Vector3& pos, Vector2& screen, const Matrix& matrix, float width, float height) {
         float x = pos.x * matrix.m[0] + pos.y * matrix.m[4] + pos.z * matrix.m[8] + matrix.m[12];
         float y = pos.x * matrix.m[1] + pos.y * matrix.m[5] + pos.z * matrix.m[9] + matrix.m[13];
@@ -80,19 +80,45 @@ namespace SDK {
         }
 
         bool isLocalPlayer() {
-            // Usually a virtual check or class identity check
-            // RTTI check or virtual method call at index 1 or 2
             return false; 
+        }
+    };
+
+    class BlockEntity {
+    public:
+        Vector3 getPosition() {
+            return *(Vector3*)((uintptr_t)this + 0x2C);
+        }
+        int getType() {
+            return *(int*)((uintptr_t)this + 0x24);
+        }
+    };
+
+    class BlockSource {
+    public:
+        std::vector<BlockEntity*> getBlockEntities() {
+            std::vector<BlockEntity*> list;
+            uintptr_t listStart = *(uintptr_t*)((uintptr_t)this + 0x48);
+            uintptr_t listEnd = *(uintptr_t*)((uintptr_t)this + 0x50);
+            if (listStart && listEnd && listEnd > listStart) {
+                size_t count = (listEnd - listStart) / sizeof(void*);
+                for (size_t i = 0; i < count; i++) {
+                    BlockEntity* entity = *(BlockEntity**)(listStart + i * sizeof(void*));
+                    if (entity) list.push_back(entity);
+                }
+            }
+            return list;
         }
     };
 
     class Player : public Actor {
     public:
-        // Additional Player methods (e.g. getName, getHandSlot)
+        BlockSource* getRegion() {
+            return *(BlockSource**)((uintptr_t)this + 0x358);
+        }
     };
 
     class LocalPlayer : public Player {
     public:
-        // LocalPlayer specifics
     };
 }

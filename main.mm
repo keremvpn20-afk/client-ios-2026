@@ -45,9 +45,8 @@ namespace Hooks {
     self = [super initWithFrame:frame];
     if (self) {
         self.backgroundColor = [UIColor clearColor];
-        self.userInteractionEnabled = NO; // Passthrough touch events so gameplay is unaffected
+        self.userInteractionEnabled = NO;
         
-        // Refresh drawing on every screen frame
         _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(redraw)];
         [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
     }
@@ -61,12 +60,10 @@ namespace Hooks {
         Hooks::storagePistonEnabled || Hooks::storageBarrelEnabled) {
         [self setNeedsDisplay];
     } else {
-        // Clear screen when all are disabled
         self.layer.sublayers = nil;
     }
 }
 
-// Helper to convert float array to UIColor
 static UIColor* ColorFromFloat(float color[3]) {
     return [UIColor colorWithRed:color[0] green:color[1] blue:color[2] alpha:1.0];
 }
@@ -75,7 +72,6 @@ static UIColor* ColorFromFloat(float color[3]) {
     CGContextRef context = UIGraphicsGetCurrentContext();
     if (!context) return;
     
-    // 1. Draw Player ESP & Tracers
     CGRect espBox = CGRectMake(rect.size.width / 2.0 - 50, rect.size.height / 2.0 - 100, 100, 200);
     
     if (Hooks::espEnabled) {
@@ -106,8 +102,7 @@ static UIColor* ColorFromFloat(float color[3]) {
         CGContextStrokePath(context);
     }
 
-    // Helper lambda to draw custom Storage ESP Box
-    auto drawStorageBox = [&](CGRect box, UIColor *color, NSString *name) {
+    auto drawStorageBox = [&](<CGRect box, UIColor *color, NSString *name>) {
         CGContextSetStrokeColorWithColor(context, color.CGColor);
         CGContextSetLineWidth(context, 1.5);
         CGContextStrokeRect(context, box);
@@ -141,7 +136,6 @@ static UIColor* ColorFromFloat(float color[3]) {
 
 @end
 
-// FloatMenu: A floating premium UIKit panel for managing cheat settings on iOS
 @interface FloatMenu : UIView {
     CGPoint lastPoint;
 }
@@ -204,7 +198,7 @@ static UIColor* ColorFromFloat(float color[3]) {
     if (self) {
         self.backgroundColor = [UIColor clearColor];
         
-        _panelView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 280, 360)];
+        _panelView = [[UIView alloc] initWithFrame:CGRectMake(50, 140, 280, 360)];
         _panelView.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.12 alpha:0.92];
         _panelView.layer.cornerRadius = 16.0;
         _panelView.layer.shadowColor = [UIColor blackColor].CGColor;
@@ -216,17 +210,14 @@ static UIColor* ColorFromFloat(float color[3]) {
         _panelView.hidden = YES;
         [self addSubview:_panelView];
         
-        // Drag Gesture for the Panel
         UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
         [_panelView addGestureRecognizer:panGesture];
         
-        // Drag handle bar
         UIView *dragHandle = [[UIView alloc] initWithFrame:CGRectMake(110, 8, 60, 4)];
         dragHandle.backgroundColor = [UIColor grayColor];
         dragHandle.layer.cornerRadius = 2.0;
         [_panelView addSubview:dragHandle];
         
-        // Title Label
         UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 15, 260, 30)];
         titleLabel.text = @"ytpavlov client";
         titleLabel.textColor = [UIColor whiteColor];
@@ -234,15 +225,13 @@ static UIColor* ColorFromFloat(float color[3]) {
         titleLabel.textAlignment = NSTextAlignmentCenter;
         [_panelView addSubview:titleLabel];
 
-        // 2. ScrollView initialization
         _scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 50, 280, 300)];
         _scrollView.showsVerticalScrollIndicator = YES;
-        _scrollView.contentSize = CGSizeMake(280, 1100); // Expanded content height for all controllers
+        _scrollView.contentSize = CGSizeMake(280, 1100);
         [_panelView addSubview:_scrollView];
         
         CGFloat currentY = 10;
         
-        // --- General Section ---
         UILabel *generalSec = [[UILabel alloc] initWithFrame:CGRectMake(15, currentY, 250, 20)];
         generalSec.text = @"GENERAL CHEATS";
         generalSec.textColor = [UIColor systemPurpleColor];
@@ -250,7 +239,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:generalSec];
         currentY += 25;
 
-        // Fly Switch
         UILabel *flyText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         flyText.text = @"Fly Hack";
         flyText.textColor = [UIColor whiteColor];
@@ -262,7 +250,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_flySwitch];
         currentY += 40;
         
-        // Killaura Switch
         UILabel *killText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         killText.text = @"Killaura";
         killText.textColor = [UIColor whiteColor];
@@ -274,7 +261,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_killauraSwitch];
         currentY += 40;
 
-        // AimAssist Switch
         UILabel *aimText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         aimText.text = @"Aim Assist";
         aimText.textColor = [UIColor whiteColor];
@@ -286,7 +272,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_aimassistSwitch];
         currentY += 40;
 
-        // Triggerbot Switch
         UILabel *triggerText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         triggerText.text = @"Triggerbot";
         triggerText.textColor = [UIColor whiteColor];
@@ -298,7 +283,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_triggerbotSwitch];
         currentY += 40;
 
-        // Speed Hack Switch
         UILabel *speedText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         speedText.text = @"Speed Hack";
         speedText.textColor = [UIColor whiteColor];
@@ -310,7 +294,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_speedSwitch];
         currentY += 35;
 
-        // Speed Value Slider
         _speedValLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 150, 20)];
         _speedValLabel.text = @"Speed Multiplier: 2.0";
         _speedValLabel.textColor = [UIColor lightGrayColor];
@@ -327,7 +310,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_speedValSlider];
         currentY += 40;
 
-        // Reach Switch
         UILabel *reachText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         reachText.text = @"Reach Hack";
         reachText.textColor = [UIColor whiteColor];
@@ -339,7 +321,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_reachSwitch];
         currentY += 35;
 
-        // Reach Distance Slider
         _reachDistLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 150, 20)];
         _reachDistLabel.text = @"Reach Distance: 5.0m";
         _reachDistLabel.textColor = [UIColor lightGrayColor];
@@ -356,7 +337,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_reachDistSlider];
         currentY += 40;
 
-        // Velocity Switch
         UILabel *velText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 150, 30)];
         velText.text = @"Velocity (Anti-KB)";
         velText.textColor = [UIColor whiteColor];
@@ -368,7 +348,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_velocitySwitch];
         currentY += 35;
 
-        // Velocity Slider
         _velocityValLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 200, 20)];
         _velocityValLabel.text = @"Velocity Scale: 0% (Anti-KB)";
         _velocityValLabel.textColor = [UIColor lightGrayColor];
@@ -377,15 +356,14 @@ static UIColor* ColorFromFloat(float color[3]) {
         currentY += 20;
 
         _velocityValSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, currentY, 240, 30)];
-        _velocityValSlider.minimumValue = 0.0f; // 0% knockback
-        _velocityValSlider.maximumValue = 1.0f; // 100% knockback
+        _velocityValSlider.minimumValue = 0.0f;
+        _velocityValSlider.maximumValue = 1.0f;
         _velocityValSlider.value = 0.0f;
         _velocityValSlider.tintColor = [UIColor systemPurpleColor];
         [_velocityValSlider addTarget:self action:@selector(velocityValChanged:) forControlEvents:UIControlEventValueChanged];
         [_scrollView addSubview:_velocityValSlider];
         currentY += 40;
 
-        // Player ESP Switch & Color
         UILabel *espText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         espText.text = @"ESP (Boxes)";
         espText.textColor = [UIColor whiteColor];
@@ -397,11 +375,9 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_espSwitch];
         currentY += 35;
         
-        // Player ESP Color Picker (tag 100, default idx 0 = Red)
         [_scrollView addSubview:[self createColorPickerWithY:currentY tag:100 defaultIdx:0]];
         currentY += 35;
         
-        // Tracer Switch & Color
         UILabel *tracerText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         tracerText.text = @"ESP (Tracers)";
         tracerText.textColor = [UIColor whiteColor];
@@ -413,11 +389,9 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:_tracerSwitch];
         currentY += 35;
         
-        // Tracer ESP Color Picker (tag 101, default idx 4 = Purple)
         [_scrollView addSubview:[self createColorPickerWithY:currentY tag:101 defaultIdx:4]];
         currentY += 45;
 
-        // --- Storage ESP Section ---
         UILabel *storageSec = [[UILabel alloc] initWithFrame:CGRectMake(15, currentY, 250, 20)];
         storageSec.text = @"STORAGE ESP";
         storageSec.textColor = [UIColor systemPurpleColor];
@@ -425,7 +399,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_scrollView addSubview:storageSec];
         currentY += 25;
 
-        // Chest Switch & Color
         UILabel *chestText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         chestText.text = @"Chests ESP";
         chestText.textColor = [UIColor whiteColor];
@@ -436,10 +409,9 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_chestSwitch addTarget:self action:@selector(chestToggled:) forControlEvents:UIControlEventValueChanged];
         [_scrollView addSubview:_chestSwitch];
         currentY += 35;
-        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:102 defaultIdx:5]]; // Orange
+        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:102 defaultIdx:5]];
         currentY += 40;
 
-        // Ender Chest Switch & Color
         UILabel *enderChestText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 150, 30)];
         enderChestText.text = @"Ender Chests ESP";
         enderChestText.textColor = [UIColor whiteColor];
@@ -450,10 +422,9 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_enderChestSwitch addTarget:self action:@selector(enderChestToggled:) forControlEvents:UIControlEventValueChanged];
         [_scrollView addSubview:_enderChestSwitch];
         currentY += 35;
-        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:103 defaultIdx:2]]; // Blue/Cyan
+        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:103 defaultIdx:2]];
         currentY += 40;
 
-        // Hopper Switch & Color
         UILabel *hopperText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         hopperText.text = @"Hoppers ESP";
         hopperText.textColor = [UIColor whiteColor];
@@ -464,10 +435,9 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_hopperSwitch addTarget:self action:@selector(hopperToggled:) forControlEvents:UIControlEventValueChanged];
         [_scrollView addSubview:_hopperSwitch];
         currentY += 35;
-        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:104 defaultIdx:6]]; // White/Gray
+        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:104 defaultIdx:6]];
         currentY += 40;
 
-        // Spawner Switch & Color
         UILabel *spawnerText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         spawnerText.text = @"Spawners ESP";
         spawnerText.textColor = [UIColor whiteColor];
@@ -478,10 +448,9 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_spawnerSwitch addTarget:self action:@selector(spawnerToggled:) forControlEvents:UIControlEventValueChanged];
         [_scrollView addSubview:_spawnerSwitch];
         currentY += 35;
-        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:105 defaultIdx:1]]; // Green
+        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:105 defaultIdx:1]];
         currentY += 40;
 
-        // Piston Switch & Color
         UILabel *pistonText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         pistonText.text = @"Pistons ESP";
         pistonText.textColor = [UIColor whiteColor];
@@ -492,10 +461,9 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_pistonSwitch addTarget:self action:@selector(pistonToggled:) forControlEvents:UIControlEventValueChanged];
         [_scrollView addSubview:_pistonSwitch];
         currentY += 35;
-        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:106 defaultIdx:3]]; // Yellow/Brown preset
+        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:106 defaultIdx:3]];
         currentY += 40;
 
-        // Barrel Switch & Color
         UILabel *barrelText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
         barrelText.text = @"Barrels ESP";
         barrelText.textColor = [UIColor whiteColor];
@@ -506,10 +474,9 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_barrelSwitch addTarget:self action:@selector(barrelToggled:) forControlEvents:UIControlEventValueChanged];
         [_scrollView addSubview:_barrelSwitch];
         currentY += 35;
-        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:107 defaultIdx:3]]; // Yellow
+        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:107 defaultIdx:3]];
         currentY += 45;
 
-        // Speed Section
         _speedLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 20)];
         _speedLabel.text = @"Fly Speed: 1.5";
         _speedLabel.textColor = [UIColor lightGrayColor];
@@ -524,9 +491,8 @@ static UIColor* ColorFromFloat(float color[3]) {
         [_speedSlider addTarget:self action:@selector(speedChanged:) forControlEvents:UIControlEventValueChanged];
         [_scrollView addSubview:_speedSlider];
         
-        // 3. Float Toggle Button
         _toggleButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        _toggleButton.frame = CGRectMake(0, 0, 50, 50);
+        _toggleButton.frame = CGRectMake(50, 80, 50, 50);
         _toggleButton.backgroundColor = [UIColor systemPurpleColor];
         _toggleButton.layer.cornerRadius = 25.0;
         _toggleButton.layer.shadowColor = [UIColor blackColor].CGColor;
@@ -537,7 +503,6 @@ static UIColor* ColorFromFloat(float color[3]) {
         _toggleButton.titleLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightBold];
         [_toggleButton addTarget:self action:@selector(toggleMenu) forControlEvents:UIControlEventTouchUpInside];
         
-        // Drag Gesture for Toggle Button
         UIPanGestureRecognizer *btnPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleButtonPan:)];
         [_toggleButton addGestureRecognizer:btnPan];
         
@@ -553,15 +518,14 @@ static UIColor* ColorFromFloat(float color[3]) {
 }
 
 - (void)colorChanged:(UISegmentedControl *)sender {
-    // Colors preset mapping: R, G, B
     float colorPresets[7][3] = {
-        {1.0f, 0.0f, 0.0f}, // 🔴 Red
-        {0.0f, 1.0f, 0.0f}, // 🟢 Green
-        {0.0f, 0.0f, 1.0f}, // 🔵 Blue
-        {1.0f, 1.0f, 0.0f}, // 🟡 Yellow
-        {0.5f, 0.0f, 0.5f}, // 🟣 Purple
-        {1.0f, 0.6f, 0.0f}, // 🟠 Orange
-        {1.0f, 1.0f, 1.0f}  // ⚪ White
+        {1.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f},
+        {0.0f, 0.0f, 1.0f},
+        {1.0f, 1.0f, 0.0f},
+        {0.5f, 0.0f, 0.5f},
+        {1.0f, 0.6f, 0.0f},
+        {1.0f, 1.0f, 1.0f}
     };
     
     NSInteger index = sender.selectedSegmentIndex;
@@ -678,6 +642,16 @@ static UIColor* ColorFromFloat(float color[3]) {
     [sender setTranslation:CGPointZero inView:self];
 }
 
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+    if (CGRectContainsPoint(_toggleButton.frame, point)) {
+        return YES;
+    }
+    if (!_panelView.hidden && CGRectContainsPoint(_panelView.frame, point)) {
+        return YES;
+    }
+    return NO;
+}
+
 @end
 
 void SetupGUI() {
@@ -691,7 +665,7 @@ void SetupGUI() {
             ESPView *espView = [[ESPView alloc] initWithFrame:window.bounds];
             [window addSubview:espView];
             
-            FloatMenu *menu = [[FloatMenu alloc] initWithFrame:CGRectMake(50, 100, 300, 300)];
+            FloatMenu *menu = [[FloatMenu alloc] initWithFrame:window.bounds];
             [window addSubview:menu];
             
             NSLog(@"[yt] gui loaded");

@@ -68,6 +68,18 @@ static UIColor* ColorFromFloat(float color[3]) {
     return [UIColor colorWithRed:color[0] green:color[1] blue:color[2] alpha:1.0];
 }
 
+static void DrawStorageBox(CGContextRef context, CGRect box, UIColor *color, NSString *name) {
+    CGContextSetStrokeColorWithColor(context, color.CGColor);
+    CGContextSetLineWidth(context, 1.5);
+    CGContextStrokeRect(context, box);
+    
+    NSDictionary *attributes = @{
+        NSFontAttributeName: [UIFont systemFontOfSize:10.0 weight:UIFontWeightBold],
+        NSForegroundColorAttributeName: color
+    };
+    [name drawAtPoint:CGPointMake(box.origin.x, box.origin.y - 14) withAttributes:attributes];
+}
+
 - (void)drawRect:(CGRect)rect {
     CGContextRef context = UIGraphicsGetCurrentContext();
     if (!context) return;
@@ -102,35 +114,23 @@ static UIColor* ColorFromFloat(float color[3]) {
         CGContextStrokePath(context);
     }
 
-    auto drawStorageBox = [&](<CGRect box, UIColor *color, NSString *name>) {
-        CGContextSetStrokeColorWithColor(context, color.CGColor);
-        CGContextSetLineWidth(context, 1.5);
-        CGContextStrokeRect(context, box);
-        
-        NSDictionary *attributes = @{
-            NSFontAttributeName: [UIFont systemFontOfSize:10.0 weight:UIFontWeightBold],
-            NSForegroundColorAttributeName: color
-        };
-        [name drawAtPoint:CGPointMake(box.origin.x, box.origin.y - 14) withAttributes:attributes];
-    };
-
     if (Hooks::storageChestEnabled) {
-        drawStorageBox(CGRectMake(60, 150, 40, 40), ColorFromFloat(Hooks::storageChestColor), @"Chest [8m]");
+        DrawStorageBox(context, CGRectMake(60, 150, 40, 40), ColorFromFloat(Hooks::storageChestColor), @"Chest [8m]");
     }
     if (Hooks::storageEnderChestEnabled) {
-        drawStorageBox(CGRectMake(60, 210, 40, 40), ColorFromFloat(Hooks::storageEnderChestColor), @"Ender Chest [11m]");
+        DrawStorageBox(context, CGRectMake(60, 210, 40, 40), ColorFromFloat(Hooks::storageEnderChestColor), @"Ender Chest [11m]");
     }
     if (Hooks::storageHopperEnabled) {
-        drawStorageBox(CGRectMake(rect.size.width - 100, 180, 40, 45), ColorFromFloat(Hooks::storageHopperColor), @"Hopper [12m]");
+        DrawStorageBox(context, CGRectMake(rect.size.width - 100, 180, 40, 45), ColorFromFloat(Hooks::storageHopperColor), @"Hopper [12m]");
     }
     if (Hooks::storageSpawnerEnabled) {
-        drawStorageBox(CGRectMake(120, rect.size.height - 220, 50, 50), ColorFromFloat(Hooks::storageSpawnerColor), @"Spawner [18m]");
+        DrawStorageBox(context, CGRectMake(120, rect.size.height - 220, 50, 50), ColorFromFloat(Hooks::storageSpawnerColor), @"Spawner [18m]");
     }
     if (Hooks::storagePistonEnabled) {
-        drawStorageBox(CGRectMake(rect.size.width - 160, rect.size.height - 180, 40, 40), ColorFromFloat(Hooks::storagePistonColor), @"Piston [5m]");
+        DrawStorageBox(context, CGRectMake(rect.size.width - 160, rect.size.height - 180, 40, 40), ColorFromFloat(Hooks::storagePistonColor), @"Piston [5m]");
     }
     if (Hooks::storageBarrelEnabled) {
-        drawStorageBox(CGRectMake(80, rect.size.height - 320, 35, 45), ColorFromFloat(Hooks::storageBarrelColor), @"Barrel [14m]");
+        DrawStorageBox(context, CGRectMake(80, rect.size.height - 320, 35, 45), ColorFromFloat(Hooks::storageBarrelColor), @"Barrel [14m]");
     }
 }
 

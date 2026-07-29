@@ -33,6 +33,8 @@ namespace Hooks {
     extern float storageSpawnerColor[3];
     extern float storagePistonColor[3];
     extern float storageBarrelColor[3];
+
+    extern std::vector<ESPObject> espObjects;
 }
 
 @interface ESPView : UIView
@@ -105,8 +107,8 @@ static void DrawStorageBox(CGContextRef context, CGRect box, UIColor *color, NSS
         CGContextSetStrokeColorWithColor(context, c.CGColor);
         CGContextSetLineWidth(context, 1.5);
         
-        CGPoint screenBottom = CGPointMake(rect.size.width / 2.0, rect.size.height);
-        CGPoint targetFeet = CGPointMake(espBox.origin.x + espBox.size.width / 2.0, espBox.origin.y + espBox.size.height);
+        CGPoint screenBottom = CGPointMake(rect.size.width / 2.0, rect.size.height / 2.0);
+        CGPoint targetFeet = CGPointMake(espBox.origin.x + espBox.size.width / 2.0, espBox.origin.y + espBox.size.height / 2.0);
         
         CGContextBeginPath(context);
         CGContextMoveToPoint(context, screenBottom.x, screenBottom.y);
@@ -114,23 +116,57 @@ static void DrawStorageBox(CGContextRef context, CGRect box, UIColor *color, NSS
         CGContextStrokePath(context);
     }
 
-    if (Hooks::storageChestEnabled) {
-        DrawStorageBox(context, CGRectMake(60, 150, 40, 40), ColorFromFloat(Hooks::storageChestColor), @"Chest [8m]");
-    }
-    if (Hooks::storageEnderChestEnabled) {
-        DrawStorageBox(context, CGRectMake(60, 210, 40, 40), ColorFromFloat(Hooks::storageEnderChestColor), @"Ender Chest [11m]");
-    }
-    if (Hooks::storageHopperEnabled) {
-        DrawStorageBox(context, CGRectMake(rect.size.width - 100, 180, 40, 45), ColorFromFloat(Hooks::storageHopperColor), @"Hopper [12m]");
-    }
-    if (Hooks::storageSpawnerEnabled) {
-        DrawStorageBox(context, CGRectMake(120, rect.size.height - 220, 50, 50), ColorFromFloat(Hooks::storageSpawnerColor), @"Spawner [18m]");
-    }
-    if (Hooks::storagePistonEnabled) {
-        DrawStorageBox(context, CGRectMake(rect.size.width - 160, rect.size.height - 180, 40, 40), ColorFromFloat(Hooks::storagePistonColor), @"Piston [5m]");
-    }
-    if (Hooks::storageBarrelEnabled) {
-        DrawStorageBox(context, CGRectMake(80, rect.size.height - 320, 35, 45), ColorFromFloat(Hooks::storageBarrelColor), @"Barrel [14m]");
+    for (const auto& obj : Hooks::espObjects) {
+        UIColor *color = nil;
+        NSString *name = nil;
+        bool isEnabled = false;
+
+        switch (obj.type) {
+            case 1:
+                isEnabled = Hooks::storageChestEnabled;
+                color = ColorFromFloat(Hooks::storageChestColor);
+                name = [NSString stringWithFormat:@"Chest [%.0fm]", obj.distance];
+                break;
+            case 2:
+                isEnabled = Hooks::storageEnderChestEnabled;
+                color = ColorFromFloat(Hooks::storageEnderChestColor);
+                name = [NSString stringWithFormat:@"Ender Chest [%.0fm]", obj.distance];
+                break;
+            case 3:
+                isEnabled = Hooks::storageHopperEnabled;
+                color = ColorFromFloat(Hooks::storageHopperColor);
+                name = [NSString stringWithFormat:@"Hopper [%.0fm]", obj.distance];
+                break;
+            case 4:
+                isEnabled = Hooks::storageSpawnerEnabled;
+                color = ColorFromFloat(Hooks::storageSpawnerColor);
+                name = [NSString stringWithFormat:@"Spawner [%.0fm]", obj.distance];
+                break;
+            case 5:
+                isEnabled = Hooks::storagePistonEnabled;
+                color = ColorFromFloat(Hooks::storagePistonColor);
+                name = [NSString stringWithFormat:@"Piston [%.0fm]", obj.distance];
+                break;
+            case 6:
+                isEnabled = Hooks::storageBarrelEnabled;
+                color = ColorFromFloat(Hooks::storageBarrelColor);
+                name = [NSString stringWithFormat:@"Barrel [%.0fm]", obj.distance];
+                break;
+        }
+
+        if (isEnabled && color) {
+            CGRect boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
+            DrawStorageBox(context, boxRect, color, name);
+
+            if (Hooks::tracerEnabled) {
+                CGContextSetStrokeColorWithColor(context, color.CGColor);
+                CGContextSetLineWidth(context, 1.0);
+                CGContextBeginPath(context);
+                CGContextMoveToPoint(context, rect.size.width / 2.0, rect.size.height / 2.0);
+                CGContextAddLineToPoint(context, obj.screenPos.x, obj.screenPos.y);
+                CGContextStrokePath(context);
+            }
+        }
     }
 }
 
@@ -662,11 +698,15 @@ void SetupGUI() {
         }
         
         if (window) {
+            UIView *parentView = window.rootViewController.view ? window.rootViewController.view : window;
+            
             ESPView *espView = [[ESPView alloc] initWithFrame:window.bounds];
-            [window addSubview:espView];
+            espView.layer.zPosition = 9999.0;
+            [parentView addSubview:espView];
             
             FloatMenu *menu = [[FloatMenu alloc] initWithFrame:window.bounds];
-            [window addSubview:menu];
+            menu.layer.zPosition = 10000.0;
+            [parentView addSubview:menu];
             
             NSLog(@"[yt] gui loaded");
         } else {

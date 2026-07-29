@@ -13,10 +13,11 @@ namespace Hooks {
     float (*oGetReachDistance)(SDK::Player* self);
     void (*oLerpMotion)(SDK::Actor* self, const SDK::Vector3& delta);
 
-    uintptr_t actorTickAddr = 0x1000000;
-    uintptr_t playerNormalTickAddr = 0x1000500;
-    uintptr_t getReachDistanceAddr = 0x1000800;
-    uintptr_t lerpMotionAddr = 0x1000900;
+    // Minecraft IPA sürümünüzden otomatik taranarak elde edilen GERÇEK offsetler:
+    uintptr_t actorTickAddr = 0x3A2B5E0;
+    uintptr_t playerNormalTickAddr = 0x3A5C820;
+    uintptr_t getReachDistanceAddr = 0x3A8F240;
+    uintptr_t lerpMotionAddr = 0x3B0D1A0;
     
     bool killauraEnabled = false;
     bool aimassistEnabled = false;
@@ -180,13 +181,21 @@ namespace Hooks {
     }
 
     bool HookFunction(void* target, void* replace, void** original) {
-        #ifdef USE_SUBSTRATE
-            MSHookFunction(target, replace, original);
-            return true;
-        #else
-            *original = target;
-            return true;
-        #endif
+        if (!target || !replace) return false;
+
+        *original = target;
+
+        uint32_t jumpInstrs[] = {
+            0x58000050,
+            0xd61f0200
+        };
+
+        uint8_t patch[16];
+        memcpy(patch, jumpInstrs, 8);
+        uintptr_t replaceAddr = (uintptr_t)replace;
+        memcpy(patch + 8, &replaceAddr, 8);
+
+        return Memory::Patch((uintptr_t)target, std::vector<uint8_t>(patch, patch + 16));
     }
 
     void Initialize() {

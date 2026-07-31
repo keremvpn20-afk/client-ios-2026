@@ -1,6 +1,6 @@
 #include "hooks.hpp"
 #include "sdk.hpp"
-#include "memory.hpp"
+#include "client_mem.hpp"
 #include <iostream>
 #include <cmath>
 

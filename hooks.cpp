@@ -15,10 +15,11 @@ namespace Hooks {
     typedef void (*tLerpMotion)(SDK::Actor*, SDK::Vector3);
     tLerpMotion oLerpMotion = nullptr;
 
-    uintptr_t actorTickAddr = 0x1000000;
-    uintptr_t playerNormalTickAddr = 0x1000500;
-    uintptr_t getReachDistanceAddr = 0x1000800;
-    uintptr_t lerpMotionAddr = 0x1000900;
+    // v1.26.33 offsetleri bulunana kadar oyunu çökertmemek için 0x0 bırakıyoruz
+    uintptr_t actorTickAddr = 0x0;
+    uintptr_t playerNormalTickAddr = 0x0;
+    uintptr_t getReachDistanceAddr = 0x0;
+    uintptr_t lerpMotionAddr = 0x0;
     
     bool killauraEnabled = false;
     bool aimassistEnabled = false;
@@ -67,7 +68,7 @@ namespace Hooks {
                 }
             }
         }
-        oActorTick(self);
+        if (oActorTick) oActorTick(self);
     }
 
     SDK::Vector2 CalculateAngles(SDK::Vector3 from, SDK::Vector3 to) {
@@ -83,16 +84,11 @@ namespace Hooks {
     void hkPlayerNormalTick(SDK::Player* self) {
         if (self && self->isLocalPlayer()) {
             SDK::Vector3 localPos = self->getPosition();
-            
             std::vector<SDK::Player*> targets;
-            
-            // Render list clean-up
             espObjects.clear();
 
-            // Resolve actual ViewMatrix (updated per version offset)
             SDK::Matrix viewMatrix = *(SDK::Matrix*)(Memory::GetBaseAddress() + 0x2A00000);
 
-            // Fetch and project real block entities from the active region
             if (storageEspEnabled) {
                 SDK::BlockSource* region = self->getRegion();
                 if (region) {
@@ -105,12 +101,12 @@ namespace Hooks {
                                 int type = blockEntity->getType();
                                 int mappedType = -1;
                                 
-                                if (type == 1) mappedType = 1;       // Chest
-                                else if (type == 2) mappedType = 2;  // Ender Chest
-                                else if (type == 8) mappedType = 3;  // Hopper
-                                else if (type == 6) mappedType = 4;  // Spawner
-                                else if (type == 10) mappedType = 5; // Piston
-                                else if (type == 15) mappedType = 6; // Barrel
+                                if (type == 1) mappedType = 1;
+                                else if (type == 2) mappedType = 2;
+                                else if (type == 8) mappedType = 3;
+                                else if (type == 6) mappedType = 4;
+                                else if (type == 10) mappedType = 5;
+                                else if (type == 15) mappedType = 6;
                                 
                                 if (mappedType != -1) {
                                     float dist = localPos.distance(pos);
@@ -157,12 +153,8 @@ namespace Hooks {
                     self->setViewAngles(smoothAngles);
                 }
             }
-
-            if (triggerbotEnabled) {
-                // triggerbot logic
-            }
         }
-        oPlayerNormalTick(self);
+        if (oPlayerNormalTick) oPlayerNormalTick(self);
     }
 
     bool HookFunction(void* target, void* replace, void** original) {
@@ -170,7 +162,6 @@ namespace Hooks {
 
         *original = target;
 
-        // ARM64 absolute jump instructions
         uint32_t patch[4];
         patch[0] = 0x58000050; // LDR X16, #8
         patch[1] = 0xD61F0200; // BR X16
@@ -185,7 +176,11 @@ namespace Hooks {
     void SetupMinecraftHooks() {
         uintptr_t base = Memory::GetBaseAddress();
         
-        HookFunction((void*)(base + actorTickAddr), (void*)&hkActorTick, (void**)&oActorTick);
-        HookFunction((void*)(base + playerNormalTickAddr), (void*)&hkPlayerNormalTick, (void**)&oPlayerNormalTick);
+        if (actorTickAddr != 0) {
+            HookFunction((void*)(base + actorTickAddr), (void*)&hkActorTick, (void**)&oActorTick);
+        }
+        if (playerNormalTickAddr != 0) {
+            HookFunction((void*)(base + playerNormalTickAddr), (void*)&hkPlayerNormalTick, (void**)&oPlayerNormalTick);
+        }
     }
 }

@@ -4,7 +4,7 @@ CFLAGS = -arch arm64 -miphoneos-version-min=14.0 -std=c++17 -shared -O2
 LDFLAGS = -framework Foundation -framework UIKit -framework Metal -framework MetalKit -framework CoreGraphics -framework QuartzCore -framework WebKit
 
 SRCS = main.mm hooks.cpp
-HEADERS = memory.hpp hooks.hpp sdk.hpp
+HEADERS = client_mem.hpp hooks.hpp sdk.hpp
 
 all: $(TARGET)
 

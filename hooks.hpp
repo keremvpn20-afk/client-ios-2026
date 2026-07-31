@@ -11,6 +11,8 @@ namespace Hooks {
     };
     extern std::vector<ESPObject> espObjects;
 
+    extern bool storageEspEnabled;
+
     void Initialize();
     bool HookFunction(void* target, void* replace, void** original);
     void SetupMinecraftHooks();

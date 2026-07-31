@@ -1,6 +1,8 @@
 #import <UIKit/UIKit.h>
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
+#import <WebKit/WebKit.h>
+#import <objc/runtime.h>
 #include "hooks.hpp"
 #include "memory.hpp"
 
@@ -35,6 +37,90 @@ namespace Hooks {
     extern float storageBarrelColor[3];
 
     extern std::vector<ESPObject> espObjects;
+}
+
+// Helper to swizzle methods dynamically
+static void SwizzleMethod(Class c, SEL origSEL, SEL newSEL) {
+    Method origMethod = class_getInstanceMethod(c, origSEL);
+    Method newMethod = class_getInstanceMethod(c, newSEL);
+    if (origMethod && newMethod) {
+        if (class_addMethod(c, origSEL, method_getImplementation(newMethod), method_getTypeEncoding(newMethod))) {
+            class_replaceMethod(c, newSEL, method_getImplementation(origMethod), method_getTypeEncoding(origMethod));
+        } else {
+            method_exchangeImplementations(origMethod, newMethod);
+        }
+    }
+}
+
+// WKWebView Category to intercept MSAL/Xbox login requests and push to Safari
+@interface WKWebView (XboxBypass)
+@end
+
+@implementation WKWebView (XboxBypass)
+
+- (void)hook_loadRequest:(NSURLRequest *)request {
+    NSURL *url = request.URL;
+    NSString *urlStr = url.absoluteString;
+    
+    if ([urlStr containsString:@"login.live.com"] || [urlStr containsString:@"login.microsoftonline.com"]) {
+        NSLog(@"[yt] Redirecting Xbox login request to external Safari: %@", urlStr);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+        });
+        return; // Prevent loading in game's limited/broken Web view
+    }
+    
+    [self hook_loadRequest:request];
+}
+
+@end
+
+// Helper class to hold our App Delegate hook implementation
+@interface AppDelegateHook : NSObject
+- (BOOL)hook_application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<NSString *, id> *)options;
+@end
+
+@implementation AppDelegateHook
+
+- (BOOL)hook_application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<NSString *, id> *)options {
+    NSString *urlStr = url.absoluteString;
+    NSLog(@"[yt] Captured authentication redirect URL: %@", urlStr);
+    
+    // Save authentication parameters to shared memory/NSUserDefaults for the game engine to read
+    if ([urlStr containsString:@"code="] || [urlStr containsString:@"access_token="]) {
+        [[NSUserDefaults standardUserDefaults] setObject:urlStr forKey:@"XboxAuthTokenCallback"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+        
+        // Post global notification so the Minecraft authentication handlers update
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"XboxAuthTokenReceived" object:nil userInfo:@{@"url": urlStr}];
+    }
+    
+    if ([self respondsToSelector:@selector(hook_application:openURL:options:)]) {
+        return [self hook_application:app openURL:url options:options];
+    }
+    return YES;
+}
+
+@end
+
+// Inject hooks dynamically at runtime
+static void SetupXboxBypass() {
+    // 1. Swizzle WKWebView
+    SwizzleMethod([WKWebView class], @selector(loadRequest:), @selector(hook_loadRequest:));
+    
+    // 2. Swizzle App Delegate openURL to capture Safari redirects
+    id delegate = [UIApplication sharedApplication].delegate;
+    if (delegate) {
+        Class delegateClass = [delegate class];
+        SEL openURLSel = @selector(application:openURL:options:);
+        
+        Method hookMethod = class_getInstanceMethod([AppDelegateHook class], @selector(hook_application:openURL:options:));
+        if (hookMethod) {
+            class_addMethod(delegateClass, @selector(hook_application:openURL:options:), method_getImplementation(hookMethod), method_getTypeEncoding(hookMethod));
+            SwizzleMethod(delegateClass, openURLSel, @selector(hook_application:openURL:options:));
+            NSLog(@"[yt] Xbox Login bypass hooked onto App Delegate");
+        }
+    }
 }
 
 @interface ESPView : UIView
@@ -700,5 +786,6 @@ void SetupGUI() {
 __attribute__((constructor))
 static void initialize() {
     Hooks::SetupMinecraftHooks();
+    SetupXboxBypass();
     SetupGUI();
 }

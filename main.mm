@@ -134,9 +134,8 @@ static void SetupXboxBypass() {
     self = [super initWithFrame:frame];
     if (self) {
         self.backgroundColor = [UIColor clearColor];
-        self.userInteractionEnabled = NO; // Passthrough touch events so gameplay is unaffected
+        self.userInteractionEnabled = NO;
         
-        // Refresh drawing on every screen frame
         _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(redraw)];
         [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
     }
@@ -360,7 +359,7 @@ static void DrawStorageBox(CGContextRef context, CGRect box, UIColor *color, NSS
 
         _scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 50, 280, 370)];
         _scrollView.showsVerticalScrollIndicator = NO;
-        _scrollView.contentSize = CGSizeMake(280, 900); // Dynamic height will be adjusted
+        _scrollView.contentSize = CGSizeMake(280, 900); // Dynamic content size
         [contentView addSubview:_scrollView];
         
         CGFloat cardY = 10;
@@ -528,94 +527,70 @@ static void DrawStorageBox(CGContextRef context, CGRect box, UIColor *color, NSS
 
         // Create Container for Sub-Options
         UIView *storageSubContainer = [[UIView alloc] initWithFrame:CGRectMake(0, cardY, 280, 520)];
-        storageSubContainer.tag = 999; // Easy lookup
-        storageSubContainer.hidden = YES; // Default hidden
+        storageSubContainer.tag = 999;
+        storageSubContainer.hidden = YES; // Hidden by default
         [_scrollView addSubview:storageSubContainer];
         
         CGFloat subY = 0;
 
-        // Chest Switch & Color
+        // Chest
         UILabel *chestText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 120, 30)];
         chestText.text = @"Chests ESP";
         chestText.textColor = [UIColor whiteColor];
         [storageSubContainer addSubview:chestText];
-
-        _chestSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
-        _chestSwitch.onTintColor = [UIColor systemPurpleColor];
-        [_chestSwitch addTarget:self action:@selector(chestToggled:) forControlEvents:UIControlEventValueChanged];
-        [storageSubContainer addSubview:_chestSwitch];
+        _chestSwitch = [self createSwitchAtX:200 y:subY action:@selector(chestToggled:) targetCard:storageSubContainer];
         subY += 35;
-        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:102 defaultIdx:5]]; // Orange
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:102 defaultIdx:5]];
         subY += 40;
 
-        // Ender Chest Switch & Color
+        // Ender Chest
         UILabel *enderChestText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 150, 30)];
         enderChestText.text = @"Ender Chests ESP";
         enderChestText.textColor = [UIColor whiteColor];
         [storageSubContainer addSubview:enderChestText];
-
-        _enderChestSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
-        _enderChestSwitch.onTintColor = [UIColor systemPurpleColor];
-        [_enderChestSwitch addTarget:self action:@selector(enderChestToggled:) forControlEvents:UIControlEventValueChanged];
-        [storageSubContainer addSubview:_enderChestSwitch];
+        _enderChestSwitch = [self createSwitchAtX:200 y:subY action:@selector(enderChestToggled:) targetCard:storageSubContainer];
         subY += 35;
-        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:103 defaultIdx:2]]; // Blue/Cyan
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:103 defaultIdx:2]];
         subY += 40;
 
-        // Hopper Switch & Color
+        // Hopper
         UILabel *hopperText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 120, 30)];
         hopperText.text = @"Hoppers ESP";
         hopperText.textColor = [UIColor whiteColor];
         [storageSubContainer addSubview:hopperText];
-
-        _hopperSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
-        _hopperSwitch.onTintColor = [UIColor systemPurpleColor];
-        [_hopperSwitch addTarget:self action:@selector(hopperToggled:) forControlEvents:UIControlEventValueChanged];
-        [storageSubContainer addSubview:_hopperSwitch];
+        _hopperSwitch = [self createSwitchAtX:200 y:subY action:@selector(hopperToggled:) targetCard:storageSubContainer];
         subY += 35;
-        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:104 defaultIdx:6]]; // White/Gray
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:104 defaultIdx:6]];
         subY += 40;
 
-        // Spawner Switch & Color
+        // Spawner
         UILabel *spawnerText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 120, 30)];
         spawnerText.text = @"Spawners ESP";
         spawnerText.textColor = [UIColor whiteColor];
         [storageSubContainer addSubview:spawnerText];
-
-        _spawnerSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
-        _spawnerSwitch.onTintColor = [UIColor systemPurpleColor];
-        [_spawnerSwitch addTarget:self action:@selector(spawnerToggled:) forControlEvents:UIControlEventValueChanged];
-        [storageSubContainer addSubview:_spawnerSwitch];
+        _spawnerSwitch = [self createSwitchAtX:200 y:subY action:@selector(spawnerToggled:) targetCard:storageSubContainer];
         subY += 35;
-        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:105 defaultIdx:1]]; // Green
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:105 defaultIdx:1]];
         subY += 40;
 
-        // Piston Switch & Color
+        // Piston
         UILabel *pistonText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 120, 30)];
         pistonText.text = @"Pistons ESP";
         pistonText.textColor = [UIColor whiteColor];
         [storageSubContainer addSubview:pistonText];
-
-        _pistonSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
-        _pistonSwitch.onTintColor = [UIColor systemPurpleColor];
-        [_pistonSwitch addTarget:self action:@selector(pistonToggled:) forControlEvents:UIControlEventValueChanged];
-        [storageSubContainer addSubview:_pistonSwitch];
+        _pistonSwitch = [self createSwitchAtX:200 y:subY action:@selector(pistonToggled:) targetCard:storageSubContainer];
         subY += 35;
-        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:106 defaultIdx:3]]; // Yellow/Brown preset
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:106 defaultIdx:3]];
         subY += 40;
 
-        // Barrel Switch & Color
+        // Barrel
         UILabel *barrelText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 120, 30)];
         barrelText.text = @"Barrels ESP";
         barrelText.textColor = [UIColor whiteColor];
         [storageSubContainer addSubview:barrelText];
-
-        _barrelSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
-        _barrelSwitch.onTintColor = [UIColor systemPurpleColor];
-        [_barrelSwitch addTarget:self action:@selector(barrelToggled:) forControlEvents:UIControlEventValueChanged];
-        [storageSubContainer addSubview:_barrelSwitch];
+        _barrelSwitch = [self createSwitchAtX:200 y:subY action:@selector(barrelToggled:) targetCard:storageSubContainer];
         subY += 35;
-        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:107 defaultIdx:3]]; // Yellow
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:107 defaultIdx:3]];
         
         cardY += 520;
         cardY += 45;
@@ -659,8 +634,7 @@ static void DrawStorageBox(CGContextRef context, CGRect box, UIColor *color, NSS
         
         [self addSubview:_toggleButton];
         
-        // Setup initial default scroll size
-        _scrollView.contentSize = CGSizeMake(280, 880);
+        _scrollView.contentSize = CGSizeMake(280, 900);
     }
     return self;
 }

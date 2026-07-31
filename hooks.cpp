@@ -1,21 +1,18 @@
 #include "hooks.hpp"
+#include "sdk.hpp"
 #include "memory.hpp"
+#include <iostream>
 #include <cmath>
 
 namespace Hooks {
-    typedef void (*tActorTick)(SDK::Actor*);
-    tActorTick oActorTick = nullptr;
+    
+    void (*oActorTick)(SDK::Actor* self) = nullptr;
+    void (*oPlayerNormalTick)(SDK::Player* self) = nullptr;
+    void (*oClientInstanceTick)(void* self) = nullptr;
+    float (*oGetReachDistance)(SDK::Player* self) = nullptr;
+    void (*oLerpMotion)(SDK::Actor* self, const SDK::Vector3& delta) = nullptr;
 
-    typedef void (*tPlayerNormalTick)(SDK::Player*);
-    tPlayerNormalTick oPlayerNormalTick = nullptr;
-
-    typedef float (*tGetReachDistance)(SDK::Player*);
-    tGetReachDistance oGetReachDistance = nullptr;
-
-    typedef void (*tLerpMotion)(SDK::Actor*, SDK::Vector3);
-    tLerpMotion oLerpMotion = nullptr;
-
-    // v1.26.33 offsetleri bulunana kadar oyunu çökertmemek için 0x0 bırakıyoruz
+    // v1.26.33 offsets set to 0x0 to prevent immediate startup crash
     uintptr_t actorTickAddr = 0x0;
     uintptr_t playerNormalTickAddr = 0x0;
     uintptr_t getReachDistanceAddr = 0x0;
@@ -157,20 +154,39 @@ namespace Hooks {
         if (oPlayerNormalTick) oPlayerNormalTick(self);
     }
 
+    float hkGetReachDistance(SDK::Player* self) {
+        if (reachEnabled) return reachDistance;
+        return oGetReachDistance ? oGetReachDistance(self) : 3.0f;
+    }
+
+    void hkLerpMotion(SDK::Actor* self, const SDK::Vector3& delta) {
+        if (velocityEnabled && self->isLocalPlayer()) {
+            SDK::Vector3 modified = delta;
+            modified.x *= velocityValue;
+            modified.y *= velocityValue;
+            modified.z *= velocityValue;
+            if (oLerpMotion) oLerpMotion(self, modified);
+            return;
+        }
+        if (oLerpMotion) oLerpMotion(self, delta);
+    }
+
     bool HookFunction(void* target, void* replace, void** original) {
         if (!target || !replace) return false;
 
         *original = target;
 
-        uint32_t patch[4];
-        patch[0] = 0x58000050; // LDR X16, #8
-        patch[1] = 0xD61F0200; // BR X16
-        
-        uintptr_t targetAddr = (uintptr_t)replace;
-        patch[2] = targetAddr & 0xFFFFFFFF;
-        patch[3] = (targetAddr >> 32) & 0xFFFFFFFF;
+        uint32_t jumpInstrs[] = {
+            0x58000050,
+            0xd61f0200
+        };
 
-        return Memory::PatchMemory(target, patch, sizeof(patch));
+        uint8_t patch[16];
+        memcpy(patch, jumpInstrs, 8);
+        uintptr_t replaceAddr = (uintptr_t)replace;
+        memcpy(patch + 8, &replaceAddr, 8);
+
+        return Memory::Patch((uintptr_t)target, std::vector<uint8_t>(patch, patch + 16));
     }
 
     void SetupMinecraftHooks() {
@@ -181,6 +197,12 @@ namespace Hooks {
         }
         if (playerNormalTickAddr != 0) {
             HookFunction((void*)(base + playerNormalTickAddr), (void*)&hkPlayerNormalTick, (void**)&oPlayerNormalTick);
+        }
+        if (getReachDistanceAddr != 0) {
+            HookFunction((void*)(base + getReachDistanceAddr), (void*)&hkGetReachDistance, (void**)&oGetReachDistance);
+        }
+        if (lerpMotionAddr != 0) {
+            HookFunction((void*)(base + lerpMotionAddr), (void*)&hkLerpMotion, (void**)&oLerpMotion);
         }
     }
 }

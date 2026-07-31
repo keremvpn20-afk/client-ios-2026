@@ -1,0 +1,863 @@
+#import <UIKit/UIKit.h>
+#import <Metal/Metal.h>
+#import <MetalKit/MetalKit.h>
+#import <WebKit/WebKit.h>
+#import <objc/runtime.h>
+#include "hooks.hpp"
+#include "client_mem.hpp"
+
+namespace Hooks {
+    extern bool killauraEnabled;
+    extern bool aimassistEnabled;
+    extern bool triggerbotEnabled;
+    extern bool flyEnabled;
+    extern bool espEnabled;
+    extern bool tracerEnabled;
+    extern bool storageChestEnabled;
+    extern bool storageEnderChestEnabled;
+    extern bool storageHopperEnabled;
+    extern bool storageSpawnerEnabled;
+    extern bool storagePistonEnabled;
+    extern bool storageBarrelEnabled;
+    extern float flySpeed;
+    extern bool speedEnabled;
+    extern float speedValue;
+    extern bool reachEnabled;
+    extern float reachDistance;
+    extern bool velocityEnabled;
+    extern float velocityValue;
+
+    extern float espColor[3];
+    extern float tracerColor[3];
+    extern float storageChestColor[3];
+    extern float storageEnderChestColor[3];
+    extern float storageHopperColor[3];
+    extern float storageSpawnerColor[3];
+    extern float storagePistonColor[3];
+    extern float storageBarrelColor[3];
+}
+
+// Helper to swizzle methods dynamically
+static void SwizzleMethod(Class c, SEL origSEL, SEL newSEL) {
+    Method origMethod = class_getInstanceMethod(c, origSEL);
+    Method newMethod = class_getInstanceMethod(c, newSEL);
+    if (origMethod && newMethod) {
+        if (class_addMethod(c, origSEL, method_getImplementation(newMethod), method_getTypeEncoding(newMethod))) {
+            class_replaceMethod(c, newSEL, method_getImplementation(origMethod), method_getTypeEncoding(origMethod));
+        } else {
+            method_exchangeImplementations(origMethod, newMethod);
+        }
+    }
+}
+
+// WKWebView Category to intercept MSAL/Xbox login requests and push to Safari
+@interface WKWebView (XboxBypass)
+@end
+
+@implementation WKWebView (XboxBypass)
+
+- (void)hook_loadRequest:(NSURLRequest *)request {
+    NSURL *url = request.URL;
+    NSString *urlStr = url.absoluteString;
+    
+    if ([urlStr containsString:@"login.live.com"] || [urlStr containsString:@"login.microsoftonline.com"]) {
+        NSLog(@"[yt] Redirecting Xbox login request to external Safari: %@", urlStr);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+        });
+        return; // Prevent loading in game's limited/broken Web view
+    }
+    
+    [self hook_loadRequest:request];
+}
+
+@end
+
+// Helper class to hold our App Delegate hook implementation
+@interface AppDelegateHook : NSObject
+- (BOOL)hook_application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<NSString *, id> *)options;
+@end
+
+@implementation AppDelegateHook
+
+- (BOOL)hook_application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<NSString *, id> *)options {
+    NSString *urlStr = url.absoluteString;
+    NSLog(@"[yt] Captured authentication redirect URL: %@", urlStr);
+    
+    // Save authentication parameters to shared memory/NSUserDefaults for the game engine to read
+    if ([urlStr containsString:@"code="] || [urlStr containsString:@"access_token="]) {
+        [[NSUserDefaults standardUserDefaults] setObject:urlStr forKey:@"XboxAuthTokenCallback"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+        
+        // Post global notification so the Minecraft authentication handlers update
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"XboxAuthTokenReceived" object:nil userInfo:@{@"url": urlStr}];
+    }
+    
+    if ([self respondsToSelector:@selector(hook_application:openURL:options:)]) {
+        return [self hook_application:app openURL:url options:options];
+    }
+    return YES;
+}
+
+@end
+
+// Inject hooks dynamically at runtime
+static void SetupXboxBypass() {
+    // 1. Swizzle WKWebView
+    SwizzleMethod([WKWebView class], @selector(loadRequest:), @selector(hook_loadRequest:));
+    
+    // 2. Swizzle App Delegate openURL to capture Safari redirects
+    id delegate = [UIApplication sharedApplication].delegate;
+    if (delegate) {
+        Class delegateClass = [delegate class];
+        SEL openURLSel = @selector(application:openURL:options:);
+        
+        Method hookMethod = class_getInstanceMethod([AppDelegateHook class], @selector(hook_application:openURL:options:));
+        if (hookMethod) {
+            class_addMethod(delegateClass, @selector(hook_application:openURL:options:), method_getImplementation(hookMethod), method_getTypeEncoding(hookMethod));
+            SwizzleMethod(delegateClass, openURLSel, @selector(hook_application:openURL:options:));
+            NSLog(@"[yt] Xbox Login bypass hooked onto App Delegate");
+        }
+    }
+}
+
+@interface ESPView : UIView
+@property (nonatomic, strong) CADisplayLink *displayLink;
+@end
+
+@implementation ESPView
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        self.userInteractionEnabled = NO; // Passthrough touch events so gameplay is unaffected
+        
+        // Refresh drawing on every screen frame
+        _displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(redraw)];
+        [_displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSDefaultRunLoopMode];
+    }
+    return self;
+}
+
+- (void)redraw {
+    if (Hooks::espEnabled || Hooks::tracerEnabled || 
+        Hooks::storageChestEnabled || Hooks::storageEnderChestEnabled ||
+        Hooks::storageHopperEnabled || Hooks::storageSpawnerEnabled || 
+        Hooks::storagePistonEnabled || Hooks::storageBarrelEnabled) {
+        [self setNeedsDisplay];
+    } else {
+        // Clear screen when all are disabled
+        self.layer.sublayers = nil;
+    }
+}
+
+static UIColor* ColorFromFloat(float color[3]) {
+    return [UIColor colorWithRed:color[0] green:color[1] blue:color[2] alpha:1.0];
+}
+
+static void DrawStorageBox(CGContextRef context, CGRect box, UIColor *color, NSString *name) {
+    CGContextSetStrokeColorWithColor(context, color.CGColor);
+    CGContextSetLineWidth(context, 1.5);
+    CGContextStrokeRect(context, box);
+    
+    NSDictionary *attributes = @{
+        NSFontAttributeName: [UIFont systemFontOfSize:10.0 weight:UIFontWeightBold],
+        NSForegroundColorAttributeName: color
+    };
+    [name drawAtPoint:CGPointMake(box.origin.x, box.origin.y - 14) withAttributes:attributes];
+}
+
+- (void)drawRect:(CGRect)rect {
+    CGContextRef context = UIGraphicsGetCurrentContext();
+    if (!context) return;
+    
+    for (const auto& obj : Hooks::espObjects) {
+        UIColor *color = nil;
+        NSString *name = nil;
+        bool isEnabled = false;
+        CGRect boxRect = CGRectZero;
+
+        switch (obj.type) {
+            case 0: // Player ESP
+                isEnabled = Hooks::espEnabled;
+                color = ColorFromFloat(Hooks::espColor);
+                name = [NSString stringWithFormat:@"Player [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 25, obj.screenPos.y - 50, 50, 100);
+                break;
+            case 1: // Chest
+                isEnabled = Hooks::storageChestEnabled;
+                color = ColorFromFloat(Hooks::storageChestColor);
+                name = [NSString stringWithFormat:@"Chest [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
+                break;
+            case 2: // Ender Chest
+                isEnabled = Hooks::storageEnderChestEnabled;
+                color = ColorFromFloat(Hooks::storageEnderChestColor);
+                name = [NSString stringWithFormat:@"Ender Chest [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
+                break;
+            case 3: // Hopper
+                isEnabled = Hooks::storageHopperEnabled;
+                color = ColorFromFloat(Hooks::storageHopperColor);
+                name = [NSString stringWithFormat:@"Hopper [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
+                break;
+            case 4: // Spawner
+                isEnabled = Hooks::storageSpawnerEnabled;
+                color = ColorFromFloat(Hooks::storageSpawnerColor);
+                name = [NSString stringWithFormat:@"Spawner [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 20, obj.screenPos.y - 20, 40, 40);
+                break;
+            case 5: // Piston
+                isEnabled = Hooks::storagePistonEnabled;
+                color = ColorFromFloat(Hooks::storagePistonColor);
+                name = [NSString stringWithFormat:@"Piston [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
+                break;
+            case 6: // Barrel
+                isEnabled = Hooks::storageBarrelEnabled;
+                color = ColorFromFloat(Hooks::storageBarrelColor);
+                name = [NSString stringWithFormat:@"Barrel [%.0fm]", obj.distance];
+                boxRect = CGRectMake(obj.screenPos.x - 15, obj.screenPos.y - 15, 30, 30);
+                break;
+        }
+
+        if (isEnabled && color && !CGRectIsEmpty(boxRect)) {
+            DrawStorageBox(context, boxRect, color, name);
+
+            if (Hooks::tracerEnabled) {
+                CGContextSetStrokeColorWithColor(context, color.CGColor);
+                CGContextSetLineWidth(context, 1.0);
+                CGContextBeginPath(context);
+                CGContextMoveToPoint(context, rect.size.width / 2.0, rect.size.height / 2.0);
+                CGContextAddLineToPoint(context, obj.screenPos.x, obj.screenPos.y);
+                CGContextStrokePath(context);
+            }
+        }
+    }
+}
+
+@end
+
+// FloatMenu: A floating premium UIKit panel for managing cheat settings on iOS
+@interface FloatMenu : UIView {
+    CGPoint lastPoint;
+}
+@property (nonatomic, strong) UIButton *toggleButton;
+@property (nonatomic, strong) UIView *panelView;
+@property (nonatomic, strong) UIScrollView *scrollView;
+
+@property (nonatomic, strong) UISwitch *flySwitch;
+@property (nonatomic, strong) UISwitch *killauraSwitch;
+@property (nonatomic, strong) UISwitch *aimassistSwitch;
+@property (nonatomic, strong) UISwitch *triggerbotSwitch;
+@property (nonatomic, strong) UISwitch *espSwitch;
+@property (nonatomic, strong) UISwitch *tracerSwitch;
+
+@property (nonatomic, strong) UISwitch *storageEspSwitch;
+@property (nonatomic, strong) UISwitch *chestSwitch;
+@property (nonatomic, strong) UISwitch *enderChestSwitch;
+@property (nonatomic, strong) UISwitch *hopperSwitch;
+@property (nonatomic, strong) UISwitch *spawnerSwitch;
+@property (nonatomic, strong) UISwitch *pistonSwitch;
+@property (nonatomic, strong) UISwitch *barrelSwitch;
+
+@property (nonatomic, strong) UISlider *speedSlider;
+@property (nonatomic, strong) UILabel *speedLabel;
+
+@property (nonatomic, strong) UISwitch *speedSwitch;
+@property (nonatomic, strong) UISlider *speedValSlider;
+@property (nonatomic, strong) UILabel *speedValLabel;
+
+@property (nonatomic, strong) UISwitch *reachSwitch;
+@property (nonatomic, strong) UISlider *reachDistSlider;
+@property (nonatomic, strong) UILabel *reachDistLabel;
+
+@property (nonatomic, strong) UISwitch *velocitySwitch;
+@property (nonatomic, strong) UISlider *velocityValSlider;
+@property (nonatomic, strong) UILabel *velocityValLabel;
+@end
+
+@implementation FloatMenu
+
+- (UISegmentedControl *)createColorPickerWithY:(CGFloat)y tag:(NSInteger)tag defaultIdx:(NSInteger)idx {
+    NSArray *items = @[@"🔴", @"🟢", @"🔵", @"🟡", @"🟣", @"🟠", @"⚪️"];
+    UISegmentedControl *seg = [[UISegmentedControl alloc] initWithItems:items];
+    seg.frame = CGRectMake(20, y, 240, 24);
+    seg.selectedSegmentIndex = idx;
+    seg.tag = tag;
+    
+    seg.backgroundColor = [UIColor colorWithRed:0.15 green:0.15 blue:0.18 alpha:1.0];
+    seg.selectedSegmentTintColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.32 alpha:1.0];
+    
+    NSDictionary *attr = @{NSForegroundColorAttributeName: [UIColor whiteColor]};
+    [seg setTitleTextAttributes:attr forState:UIControlStateNormal];
+    [seg setTitleTextAttributes:attr forState:UIControlStateSelected];
+    
+    [seg addTarget:self action:@selector(colorChanged:) forControlEvents:UIControlEventValueChanged];
+    return seg;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+    self = [super initWithFrame:frame];
+    if (self) {
+        self.backgroundColor = [UIColor clearColor];
+        
+        _panelView = [[UIView alloc] initWithFrame:CGRectMake(50, 140, 280, 360)];
+        _panelView.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.12 alpha:0.92];
+        _panelView.layer.cornerRadius = 16.0;
+        _panelView.layer.shadowColor = [UIColor blackColor].CGColor;
+        _panelView.layer.shadowOpacity = 0.5;
+        _panelView.layer.shadowOffset = CGSizeMake(0, 4);
+        _panelView.layer.shadowRadius = 8.0;
+        _panelView.layer.borderWidth = 1.0;
+        _panelView.layer.borderColor = [UIColor colorWithRed:0.25 green:0.25 blue:0.30 alpha:1.0].CGColor;
+        _panelView.hidden = YES;
+        [self addSubview:_panelView];
+        
+        // Drag Gesture for the Panel
+        UIPanGestureRecognizer *panGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+        [_panelView addGestureRecognizer:panGesture];
+        
+        // Drag handle bar
+        UIView *dragHandle = [[UIView alloc] initWithFrame:CGRectMake(110, 8, 60, 4)];
+        dragHandle.backgroundColor = [UIColor grayColor];
+        dragHandle.layer.cornerRadius = 2.0;
+        [_panelView addSubview:dragHandle];
+        
+        // Title Label
+        UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(10, 15, 260, 30)];
+        titleLabel.text = @"ytpavlov client";
+        titleLabel.textColor = [UIColor whiteColor];
+        titleLabel.font = [UIFont systemFontOfSize:18.0 weight:UIFontWeightBold];
+        titleLabel.textAlignment = NSTextAlignmentCenter;
+        [_panelView addSubview:titleLabel];
+
+        // 2. ScrollView initialization
+        _scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 50, 280, 300)];
+        _scrollView.showsVerticalScrollIndicator = YES;
+        _scrollView.contentSize = CGSizeMake(280, 1100); // Expanded content height for all controllers
+        [_panelView addSubview:_scrollView];
+        
+        CGFloat currentY = 10;
+        
+        // --- General Section ---
+        UILabel *generalSec = [[UILabel alloc] initWithFrame:CGRectMake(15, currentY, 250, 20)];
+        generalSec.text = @"GENERAL CHEATS";
+        generalSec.textColor = [UIColor systemPurpleColor];
+        generalSec.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightBold];
+        [_scrollView addSubview:generalSec];
+        currentY += 25;
+
+        // Fly Switch
+        UILabel *flyText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
+        flyText.text = @"Fly Hack";
+        flyText.textColor = [UIColor whiteColor];
+        [_scrollView addSubview:flyText];
+        
+        _flySwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, currentY, 50, 30)];
+        _flySwitch.onTintColor = [UIColor systemPurpleColor];
+        [_flySwitch addTarget:self action:@selector(flyToggled:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_flySwitch];
+        currentY += 40;
+        
+        // Killaura Switch
+        UILabel *killText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
+        killText.text = @"Killaura";
+        killText.textColor = [UIColor whiteColor];
+        [_scrollView addSubview:killText];
+        
+        _killauraSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, currentY, 50, 30)];
+        _killauraSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_killauraSwitch addTarget:self action:@selector(killauraToggled:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_killauraSwitch];
+        currentY += 40;
+
+        // AimAssist Switch
+        UILabel *aimText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
+        aimText.text = @"Aim Assist";
+        aimText.textColor = [UIColor whiteColor];
+        [_scrollView addSubview:aimText];
+        
+        _aimassistSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, currentY, 50, 30)];
+        _aimassistSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_aimassistSwitch addTarget:self action:@selector(aimassistToggled:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_aimassistSwitch];
+        currentY += 40;
+
+        // Triggerbot Switch
+        UILabel *triggerText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
+        triggerText.text = @"Triggerbot";
+        triggerText.textColor = [UIColor whiteColor];
+        [_scrollView addSubview:triggerText];
+        
+        _triggerbotSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, currentY, 50, 30)];
+        _triggerbotSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_triggerbotSwitch addTarget:self action:@selector(triggerbotToggled:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_triggerbotSwitch];
+        currentY += 40;
+
+        // Speed Hack Switch
+        UILabel *speedText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
+        speedText.text = @"Speed Hack";
+        speedText.textColor = [UIColor whiteColor];
+        [_scrollView addSubview:speedText];
+
+        _speedSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, currentY, 50, 30)];
+        _speedSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_speedSwitch addTarget:self action:@selector(speedToggled:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_speedSwitch];
+        currentY += 35;
+
+        // Speed Value Slider
+        _speedValLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 150, 20)];
+        _speedValLabel.text = @"Speed Multiplier: 2.0";
+        _speedValLabel.textColor = [UIColor lightGrayColor];
+        _speedValLabel.font = [UIFont systemFontOfSize:12.0];
+        [_scrollView addSubview:_speedValLabel];
+        currentY += 20;
+
+        _speedValSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, currentY, 240, 30)];
+        _speedValSlider.minimumValue = 1.0f;
+        _speedValSlider.maximumValue = 10.0f;
+        _speedValSlider.value = 2.0f;
+        _speedValSlider.tintColor = [UIColor systemPurpleColor];
+        [_speedValSlider addTarget:self action:@selector(speedValChanged:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_speedValSlider];
+        currentY += 40;
+
+        // Reach Switch
+        UILabel *reachText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
+        reachText.text = @"Reach Hack";
+        reachText.textColor = [UIColor whiteColor];
+        [_scrollView addSubview:reachText];
+
+        _reachSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, currentY, 50, 30)];
+        _reachSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_reachSwitch addTarget:self action:@selector(reachToggled:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_reachSwitch];
+        currentY += 35;
+
+        // Reach Distance Slider
+        _reachDistLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 150, 20)];
+        _reachDistLabel.text = @"Reach Distance: 5.0m";
+        _reachDistLabel.textColor = [UIColor lightGrayColor];
+        _reachDistLabel.font = [UIFont systemFontOfSize:12.0];
+        [_scrollView addSubview:_reachDistLabel];
+        currentY += 20;
+
+        _reachDistSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, currentY, 240, 30)];
+        _reachDistSlider.minimumValue = 3.0f;
+        _reachDistSlider.maximumValue = 10.0f;
+        _reachDistSlider.value = 5.0f;
+        _reachDistSlider.tintColor = [UIColor systemPurpleColor];
+        [_reachDistSlider addTarget:self action:@selector(reachDistChanged:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_reachDistSlider];
+        currentY += 40;
+
+        // Velocity Switch
+        UILabel *velText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 150, 30)];
+        velText.text = @"Velocity (Anti-KB)";
+        velText.textColor = [UIColor whiteColor];
+        [_scrollView addSubview:velText];
+
+        _velocitySwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, currentY, 50, 30)];
+        _velocitySwitch.onTintColor = [UIColor systemPurpleColor];
+        [_velocitySwitch addTarget:self action:@selector(velocityToggled:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_velocitySwitch];
+        currentY += 35;
+
+        // Velocity Slider
+        _velocityValLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 200, 20)];
+        _velocityValLabel.text = @"Velocity Scale: 0% (Anti-KB)";
+        _velocityValLabel.textColor = [UIColor lightGrayColor];
+        _velocityValLabel.font = [UIFont systemFontOfSize:12.0];
+        [_scrollView addSubview:_velocityValLabel];
+        currentY += 20;
+
+        _velocityValSlider = [[UISlider alloc] initWithFrame:CGRectMake(20, currentY, 240, 30)];
+        _velocityValSlider.minimumValue = 0.0f; // 0% knockback
+        _velocityValSlider.maximumValue = 1.0f; // 100% knockback
+        _velocityValSlider.value = 0.0f;
+        _velocityValSlider.tintColor = [UIColor systemPurpleColor];
+        [_velocityValSlider addTarget:self action:@selector(velocityValChanged:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_velocityValSlider];
+        currentY += 40;
+
+        // Player ESP Switch & Color
+        UILabel *espText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
+        espText.text = @"ESP (Boxes)";
+        espText.textColor = [UIColor whiteColor];
+        [_scrollView addSubview:espText];
+        
+        _espSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, currentY, 50, 30)];
+        _espSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_espSwitch addTarget:self action:@selector(espToggled:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_espSwitch];
+        currentY += 35;
+        
+        // Player ESP Color Picker (tag 100, default idx 0 = Red)
+        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:100 defaultIdx:0]];
+        currentY += 35;
+        
+        // Tracer Switch & Color
+        UILabel *tracerText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 30)];
+        tracerText.text = @"ESP (Tracers)";
+        tracerText.textColor = [UIColor whiteColor];
+        [_scrollView addSubview:tracerText];
+        
+        _tracerSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, currentY, 50, 30)];
+        _tracerSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_tracerSwitch addTarget:self action:@selector(tracerToggled:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_tracerSwitch];
+        currentY += 35;
+        
+        // Tracer ESP Color Picker (tag 101, default idx 4 = Purple)
+        [_scrollView addSubview:[self createColorPickerWithY:currentY tag:101 defaultIdx:4]];
+        currentY += 45;
+
+        // --- Storage ESP Section ---
+        UILabel *storageSec = [[UILabel alloc] initWithFrame:CGRectMake(15, currentY, 250, 20)];
+        storageSec.text = @"STORAGE ESP";
+        storageSec.textColor = [UIColor systemPurpleColor];
+        storageSec.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightBold];
+        [_scrollView addSubview:storageSec];
+        currentY += 25;
+
+        // Master Switch
+        UILabel *masterText = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 150, 30)];
+        masterText.text = @"Enable Storage ESP";
+        masterText.textColor = [UIColor whiteColor];
+        [_scrollView addSubview:masterText];
+
+        _storageEspSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, currentY, 50, 30)];
+        _storageEspSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_storageEspSwitch addTarget:self action:@selector(storageEspToggled:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_storageEspSwitch];
+        currentY += 40;
+
+        // Create Container for Sub-Options
+        UIView *storageSubContainer = [[UIView alloc] initWithFrame:CGRectMake(0, currentY, 280, 520)];
+        storageSubContainer.tag = 999; // Easy lookup
+        storageSubContainer.hidden = YES; // Default hidden
+        [_scrollView addSubview:storageSubContainer];
+        
+        CGFloat subY = 0;
+
+        // Chest Switch & Color
+        UILabel *chestText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 120, 30)];
+        chestText.text = @"Chests ESP";
+        chestText.textColor = [UIColor whiteColor];
+        [storageSubContainer addSubview:chestText];
+
+        _chestSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
+        _chestSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_chestSwitch addTarget:self action:@selector(chestToggled:) forControlEvents:UIControlEventValueChanged];
+        [storageSubContainer addSubview:_chestSwitch];
+        subY += 35;
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:102 defaultIdx:5]]; // Orange
+        subY += 40;
+
+        // Ender Chest Switch & Color
+        UILabel *enderChestText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 150, 30)];
+        enderChestText.text = @"Ender Chests ESP";
+        enderChestText.textColor = [UIColor whiteColor];
+        [storageSubContainer addSubview:enderChestText];
+
+        _enderChestSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
+        _enderChestSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_enderChestSwitch addTarget:self action:@selector(enderChestToggled:) forControlEvents:UIControlEventValueChanged];
+        [storageSubContainer addSubview:_enderChestSwitch];
+        subY += 35;
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:103 defaultIdx:2]]; // Blue/Cyan
+        subY += 40;
+
+        // Hopper Switch & Color
+        UILabel *hopperText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 120, 30)];
+        hopperText.text = @"Hoppers ESP";
+        hopperText.textColor = [UIColor whiteColor];
+        [storageSubContainer addSubview:hopperText];
+
+        _hopperSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
+        _hopperSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_hopperSwitch addTarget:self action:@selector(hopperToggled:) forControlEvents:UIControlEventValueChanged];
+        [storageSubContainer addSubview:_hopperSwitch];
+        subY += 35;
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:104 defaultIdx:6]]; // White/Gray
+        subY += 40;
+
+        // Spawner Switch & Color
+        UILabel *spawnerText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 120, 30)];
+        spawnerText.text = @"Spawners ESP";
+        spawnerText.textColor = [UIColor whiteColor];
+        [storageSubContainer addSubview:spawnerText];
+
+        _spawnerSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
+        _spawnerSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_spawnerSwitch addTarget:self action:@selector(spawnerToggled:) forControlEvents:UIControlEventValueChanged];
+        [storageSubContainer addSubview:_spawnerSwitch];
+        subY += 35;
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:105 defaultIdx:1]]; // Green
+        subY += 40;
+
+        // Piston Switch & Color
+        UILabel *pistonText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 120, 30)];
+        pistonText.text = @"Pistons ESP";
+        pistonText.textColor = [UIColor whiteColor];
+        [storageSubContainer addSubview:pistonText];
+
+        _pistonSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
+        _pistonSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_pistonSwitch addTarget:self action:@selector(pistonToggled:) forControlEvents:UIControlEventValueChanged];
+        [storageSubContainer addSubview:_pistonSwitch];
+        subY += 35;
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:106 defaultIdx:3]]; // Yellow/Brown preset
+        subY += 40;
+
+        // Barrel Switch & Color
+        UILabel *barrelText = [[UILabel alloc] initWithFrame:CGRectMake(20, subY, 120, 30)];
+        barrelText.text = @"Barrels ESP";
+        barrelText.textColor = [UIColor whiteColor];
+        [storageSubContainer addSubview:barrelText];
+
+        _barrelSwitch = [[UISwitch alloc] initWithFrame:CGRectMake(200, subY, 50, 30)];
+        _barrelSwitch.onTintColor = [UIColor systemPurpleColor];
+        [_barrelSwitch addTarget:self action:@selector(barrelToggled:) forControlEvents:UIControlEventValueChanged];
+        [storageSubContainer addSubview:_barrelSwitch];
+        subY += 35;
+        [storageSubContainer addSubview:[self createColorPickerWithY:subY tag:107 defaultIdx:3]]; // Yellow
+        
+        currentY += 520; // Skip over container height in layout
+        currentY += 45;
+
+        // Speed Section
+        _speedLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, currentY, 120, 20)];
+        _speedLabel.text = @"Fly Speed: 1.5";
+        _speedLabel.textColor = [UIColor lightGrayColor];
+        _speedLabel.font = [UIFont systemFontOfSize:12.0];
+        [_scrollView addSubview:_speedLabel];
+        
+        _speedSlider = [[UISlider alloc] initWithFrame:CGRectMake(120, currentY, 140, 30)];
+        _speedSlider.minimumValue = 0.5f;
+        _speedSlider.maximumValue = 5.0f;
+        _speedSlider.value = 1.5f;
+        _speedSlider.tintColor = [UIColor systemPurpleColor];
+        [_speedSlider addTarget:self action:@selector(speedChanged:) forControlEvents:UIControlEventValueChanged];
+        [_scrollView addSubview:_speedSlider];
+        
+        // 3. Float Toggle Button
+        _toggleButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        _toggleButton.frame = CGRectMake(50, 80, 50, 50);
+        _toggleButton.backgroundColor = [UIColor systemPurpleColor];
+        _toggleButton.layer.cornerRadius = 25.0;
+        _toggleButton.layer.shadowColor = [UIColor blackColor].CGColor;
+        _toggleButton.layer.shadowOpacity = 0.4;
+        _toggleButton.layer.shadowOffset = CGSizeMake(0, 2);
+        [_toggleButton setTitle:@"YP" forState:UIControlStateNormal];
+        [_toggleButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        _toggleButton.titleLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightBold];
+        [_toggleButton addTarget:self action:@selector(toggleMenu) forControlEvents:UIControlEventTouchUpInside];
+        
+        // Drag Gesture for Toggle Button
+        UIPanGestureRecognizer *btnPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleButtonPan:)];
+        [_toggleButton addGestureRecognizer:btnPan];
+        
+        [self addSubview:_toggleButton];
+    }
+    return self;
+}
+
+- (void)toggleMenu {
+    [UIView transitionWithView:_panelView duration:0.3 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
+        self->_panelView.hidden = !self->_panelView.hidden;
+    } completion:nil];
+}
+
+- (void)colorChanged:(UISegmentedControl *)sender {
+    // Colors preset mapping: R, G, B
+    float colorPresets[7][3] = {
+        {1.0f, 0.0f, 0.0f}, // 🔴 Red
+        {0.0f, 1.0f, 0.0f}, // 🟢 Green
+        {0.0f, 0.0f, 1.0f}, // 🔵 Blue
+        {1.0f, 1.0f, 0.0f}, // 🟡 Yellow
+        {0.5f, 0.0f, 0.5f}, // 🟣 Purple
+        {1.0f, 0.6f, 0.0f}, // 🟠 Orange
+        {1.0f, 1.0f, 1.0f}  // ⚪ White
+    };
+    
+    NSInteger index = sender.selectedSegmentIndex;
+    if (index < 0 || index > 6) return;
+    
+    float *targetColor = nullptr;
+    switch (sender.tag) {
+        case 100: targetColor = Hooks::espColor; break;
+        case 101: targetColor = Hooks::tracerColor; break;
+        case 102: targetColor = Hooks::storageChestColor; break;
+        case 103: targetColor = Hooks::storageEnderChestColor; break;
+        case 104: targetColor = Hooks::storageHopperColor; break;
+        case 105: targetColor = Hooks::storageSpawnerColor; break;
+        case 106: targetColor = Hooks::storagePistonColor; break;
+        case 107: targetColor = Hooks::storageBarrelColor; break;
+    }
+    
+    if (targetColor) {
+        targetColor[0] = colorPresets[index][0];
+        targetColor[1] = colorPresets[index][1];
+        targetColor[2] = colorPresets[index][2];
+    }
+}
+
+- (void)flyToggled:(UISwitch *)sender {
+    Hooks::flyEnabled = sender.isOn;
+}
+
+- (void)speedToggled:(UISwitch *)sender {
+    Hooks::speedEnabled = sender.isOn;
+}
+
+- (void)speedValChanged:(UISlider *)sender {
+    Hooks::speedValue = sender.value;
+    _speedValLabel.text = [NSString stringWithFormat:@"Speed Multiplier: %.1f", sender.value];
+}
+
+- (void)reachToggled:(UISwitch *)sender {
+    Hooks::reachEnabled = sender.isOn;
+}
+
+- (void)reachDistChanged:(UISlider *)sender {
+    Hooks::reachDistance = sender.value;
+    _reachDistLabel.text = [NSString stringWithFormat:@"Reach Distance: %.1fm", sender.value];
+}
+
+- (void)velocityToggled:(UISwitch *)sender {
+    Hooks::velocityEnabled = sender.isOn;
+}
+
+- (void)velocityValChanged:(UISlider *)sender {
+    Hooks::velocityValue = sender.value;
+    _velocityValLabel.text = [NSString stringWithFormat:@"Velocity Scale: %.0f%% (Anti-KB)", sender.value * 100.0f];
+}
+
+- (void)killauraToggled:(UISwitch *)sender {
+    Hooks::killauraEnabled = sender.isOn;
+}
+
+- (void)aimassistToggled:(UISwitch *)sender {
+    Hooks::aimassistEnabled = sender.isOn;
+}
+
+- (void)triggerbotToggled:(UISwitch *)sender {
+    Hooks::triggerbotEnabled = sender.isOn;
+}
+
+- (void)espToggled:(UISwitch *)sender {
+    Hooks::espEnabled = sender.isOn;
+}
+
+- (void)tracerToggled:(UISwitch *)sender {
+    Hooks::tracerEnabled = sender.isOn;
+}
+
+- (void)storageEspToggled:(UISwitch *)sender {
+    Hooks::storageEspEnabled = sender.isOn;
+    
+    UIView *container = [_scrollView viewWithTag:999];
+    if (container) {
+        [UIView transitionWithView:container duration:0.3 options:UIViewAnimationOptionTransitionCrossDissolve animations:^{
+            container.hidden = !sender.isOn;
+        } completion:^(BOOL finished) {
+            // Adjust scroll content size dynamically
+            if (sender.isOn) {
+                self->_scrollView.contentSize = CGSizeMake(280, 1360);
+            } else {
+                self->_scrollView.contentSize = CGSizeMake(280, 840);
+            }
+        }];
+    }
+}
+
+- (void)chestToggled:(UISwitch *)sender {
+    Hooks::storageChestEnabled = sender.isOn;
+}
+
+- (void)enderChestToggled:(UISwitch *)sender {
+    Hooks::storageEnderChestEnabled = sender.isOn;
+}
+
+- (void)hopperToggled:(UISwitch *)sender {
+    Hooks::storageHopperEnabled = sender.isOn;
+}
+
+- (void)spawnerToggled:(UISwitch *)sender {
+    Hooks::storageSpawnerEnabled = sender.isOn;
+}
+
+- (void)pistonToggled:(UISwitch *)sender {
+    Hooks::storagePistonEnabled = sender.isOn;
+}
+
+- (void)barrelToggled:(UISwitch *)sender {
+    Hooks::storageBarrelEnabled = sender.isOn;
+}
+
+- (void)speedChanged:(UISlider *)sender {
+    Hooks::flySpeed = sender.value;
+    _speedLabel.text = [NSString stringWithFormat:@"Fly Speed: %.1f", sender.value];
+}
+
+- (void)handlePan:(UIPanGestureRecognizer *)sender {
+    CGPoint translation = [sender translationInView:self];
+    sender.view.center = CGPointMake(sender.view.center.x + translation.x, sender.view.center.y + translation.y);
+    [sender setTranslation:CGPointZero inView:self];
+}
+
+- (void)handleButtonPan:(UIPanGestureRecognizer *)sender {
+    CGPoint translation = [sender translationInView:self];
+    sender.view.center = CGPointMake(sender.view.center.x + translation.x, sender.view.center.y + translation.y);
+    [sender setTranslation:CGPointZero inView:self];
+}
+
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
+    if (CGRectContainsPoint(_toggleButton.frame, point)) {
+        return YES;
+    }
+    if (!_panelView.hidden && CGRectContainsPoint(_panelView.frame, point)) {
+        return YES;
+    }
+    return NO;
+}
+
+@end
+
+void SetupGUI() {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIWindow *window = [UIApplication sharedApplication].keyWindow;
+        if (!window && [UIApplication sharedApplication].windows.count > 0) {
+            window = [UIApplication sharedApplication].windows.firstObject;
+        }
+        
+        if (window) {
+            UIView *parentView = window.rootViewController.view ? window.rootViewController.view : window;
+            
+            ESPView *espView = [[ESPView alloc] initWithFrame:window.bounds];
+            espView.layer.zPosition = 9999.0;
+            [parentView addSubview:espView];
+            
+            FloatMenu *menu = [[FloatMenu alloc] initWithFrame:window.bounds];
+            menu.layer.zPosition = 10000.0;
+            [parentView addSubview:menu];
+            
+            NSLog(@"[yt] gui loaded");
+        } else {
+            SetupGUI();
+        }
+    });
+}
+
+__attribute__((constructor))
+static void initialize() {
+    Hooks::SetupMinecraftHooks();
+    SetupXboxBypass();
+    SetupGUI();
+}

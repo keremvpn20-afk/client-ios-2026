@@ -181,28 +181,9 @@ namespace Hooks {
             0xd61f0200
         };
 
-        uint8_t patch[16];
-        memcpy(patch, jumpInstrs, 8);
+        uint8_t patchBytes[16];
+        memcpy(patchBytes, jumpInstrs, 8);
         uintptr_t replaceAddr = (uintptr_t)replace;
-        memcpy(patch + 8, &replaceAddr, 8);
+        memcpy(patchBytes + 8, &replaceAddr, 8);
 
-        return Memory::Patch((uintptr_t)target, std::vector<uint8_t>(patch, patch + 16));
-    }
-
-    void SetupMinecraftHooks() {
-        uintptr_t base = Memory::GetBaseAddress();
-        
-        if (actorTickAddr != 0) {
-            HookFunction((void*)(base + actorTickAddr), (void*)&hkActorTick, (void**)&oActorTick);
-        }
-        if (playerNormalTickAddr != 0) {
-            HookFunction((void*)(base + playerNormalTickAddr), (void*)&hkPlayerNormalTick, (void**)&oPlayerNormalTick);
-        }
-        if (getReachDistanceAddr != 0) {
-            HookFunction((void*)(base + getReachDistanceAddr), (void*)&hkGetReachDistance, (void**)&oGetReachDistance);
-        }
-        if (lerpMotionAddr != 0) {
-            HookFunction((void*)(base + lerpMotionAddr), (void*)&hkLerpMotion, (void**)&oLerpMotion);
-        }
-    }
-}
+        return Memory::Patch((uintptr_t)target, std::vector<uint8_t>(patchBytes, patch

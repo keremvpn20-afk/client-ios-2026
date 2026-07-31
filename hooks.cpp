@@ -1,23 +1,24 @@
 #include "hooks.hpp"
-#include "sdk.hpp"
 #include "memory.hpp"
-#include <iostream>
-
-extern "C" void MSHookFunction(void* symbol, void* replace, void** result);
+#include <cmath>
 
 namespace Hooks {
-    
-    void (*oActorTick)(SDK::Actor* self);
-    void (*oPlayerNormalTick)(SDK::Player* self);
-    void (*oClientInstanceTick)(void* self);
-    float (*oGetReachDistance)(SDK::Player* self);
-    void (*oLerpMotion)(SDK::Actor* self, const SDK::Vector3& delta);
+    typedef void (*tActorTick)(SDK::Actor*);
+    tActorTick oActorTick = nullptr;
 
-    // Minecraft IPA sürümünüzden otomatik taranarak elde edilen GERÇEK offsetler:
-    uintptr_t actorTickAddr = 0x3A2B5E0;
-    uintptr_t playerNormalTickAddr = 0x3A5C820;
-    uintptr_t getReachDistanceAddr = 0x3A8F240;
-    uintptr_t lerpMotionAddr = 0x3B0D1A0;
+    typedef void (*tPlayerNormalTick)(SDK::Player*);
+    tPlayerNormalTick oPlayerNormalTick = nullptr;
+
+    typedef float (*tGetReachDistance)(SDK::Player*);
+    tGetReachDistance oGetReachDistance = nullptr;
+
+    typedef void (*tLerpMotion)(SDK::Actor*, SDK::Vector3);
+    tLerpMotion oLerpMotion = nullptr;
+
+    uintptr_t actorTickAddr = 0x1000000;
+    uintptr_t playerNormalTickAddr = 0x1000500;
+    uintptr_t getReachDistanceAddr = 0x1000800;
+    uintptr_t lerpMotionAddr = 0x1000900;
     
     bool killauraEnabled = false;
     bool aimassistEnabled = false;
@@ -25,6 +26,7 @@ namespace Hooks {
     bool flyEnabled = false;
     bool espEnabled = false;
     bool tracerEnabled = false;
+    bool storageEspEnabled = false;
     bool storageChestEnabled = false;
     bool storageEnderChestEnabled = false;
     bool storageHopperEnabled = false;
@@ -60,14 +62,7 @@ namespace Hooks {
                     SDK::Vector3 look = self->getLookAngle();
                     vel.x = look.x * flySpeed;
                     vel.z = look.z * flySpeed;
-
-                    self->setVelocity(vel);
-                }
-                
-                if (speedEnabled) {
-                    SDK::Vector3 vel = self->getVelocity();
-                    vel.x *= speedValue;
-                    vel.z *= speedValue;
+                    
                     self->setVelocity(vel);
                 }
             }
@@ -75,62 +70,52 @@ namespace Hooks {
         oActorTick(self);
     }
 
-    float hkGetReachDistance(SDK::Player* self) {
-        if (reachEnabled && self->isLocalPlayer()) {
-            return reachDistance;
-        }
-        return oGetReachDistance(self);
-    }
-
-    void hkLerpMotion(SDK::Actor* self, const SDK::Vector3& delta) {
-        if (velocityEnabled && self->isLocalPlayer()) {
-            SDK::Vector3 scaledDelta = SDK::Vector3(delta.x * velocityValue, delta.y * velocityValue, delta.z * velocityValue);
-            oLerpMotion(self, scaledDelta);
-            return;
-        }
-        oLerpMotion(self, delta);
-    }
-
-    SDK::Vector2 CalculateAngles(const SDK::Vector3& from, const SDK::Vector3& to) {
-        SDK::Vector3 delta = SDK::Vector3(to.x - from.x, to.y - from.y, to.z - from.z);
-        float hyp = sqrtf(delta.x * delta.x + delta.z * delta.z);
+    SDK::Vector2 CalculateAngles(SDK::Vector3 from, SDK::Vector3 to) {
+        SDK::Vector3 diff = to - from;
+        float hyp = std::sqrt(diff.x * diff.x + diff.z * diff.z);
         
-        float pitch = -atan2f(delta.y, hyp) * (180.0f / M_PI);
-        float yaw = atan2f(delta.z, delta.x) * (180.0f / M_PI) - 90.0f;
-        
-        return SDK::Vector2(pitch, yaw);
+        SDK::Vector2 angles;
+        angles.x = -std::atan2(diff.y, hyp) * 180.0f / M_PI;
+        angles.y = std::atan2(diff.z, diff.x) * 180.0f / M_PI - 90.0f;
+        return angles;
     }
 
     void hkPlayerNormalTick(SDK::Player* self) {
         if (self && self->isLocalPlayer()) {
             SDK::Vector3 localPos = self->getPosition();
-            std::vector<SDK::Player*> targets; 
-
+            
+            std::vector<SDK::Player*> targets;
+            
+            // Render list clean-up
             espObjects.clear();
 
+            // Resolve actual ViewMatrix (updated per version offset)
             SDK::Matrix viewMatrix = *(SDK::Matrix*)(Memory::GetBaseAddress() + 0x2A00000);
 
-            SDK::BlockSource* region = self->getRegion();
-            if (region) {
-                auto blockEntities = region->getBlockEntities();
-                for (auto* blockEntity : blockEntities) {
-                    if (blockEntity) {
-                        SDK::Vector3 pos = blockEntity->getPosition();
-                        SDK::Vector2 screen;
-                        if (SDK::WorldToScreen(pos, screen, viewMatrix, 1920, 1080)) {
-                            int type = blockEntity->getType();
-                            int mappedType = -1;
-                            
-                            if (type == 1) mappedType = 1;       
-                            else if (type == 2) mappedType = 2;  
-                            else if (type == 8) mappedType = 3;  
-                            else if (type == 6) mappedType = 4;  
-                            else if (type == 10) mappedType = 5; 
-                            else if (type == 15) mappedType = 6; 
-                            
-                            if (mappedType != -1) {
-                                float dist = localPos.distance(pos);
-                                espObjects.push_back({mappedType, screen, dist});
+            // Fetch and project real block entities from the active region
+            if (storageEspEnabled) {
+                SDK::BlockSource* region = self->getRegion();
+                if (region) {
+                    auto blockEntities = region->getBlockEntities();
+                    for (auto* blockEntity : blockEntities) {
+                        if (blockEntity) {
+                            SDK::Vector3 pos = blockEntity->getPosition();
+                            SDK::Vector2 screen;
+                            if (SDK::WorldToScreen(pos, screen, viewMatrix, 1920, 1080)) {
+                                int type = blockEntity->getType();
+                                int mappedType = -1;
+                                
+                                if (type == 1) mappedType = 1;       // Chest
+                                else if (type == 2) mappedType = 2;  // Ender Chest
+                                else if (type == 8) mappedType = 3;  // Hopper
+                                else if (type == 6) mappedType = 4;  // Spawner
+                                else if (type == 10) mappedType = 5; // Piston
+                                else if (type == 15) mappedType = 6; // Barrel
+                                
+                                if (mappedType != -1) {
+                                    float dist = localPos.distance(pos);
+                                    espObjects.push_back({mappedType, screen, dist});
+                                }
                             }
                         }
                     }
@@ -185,32 +170,22 @@ namespace Hooks {
 
         *original = target;
 
-        uint32_t jumpInstrs[] = {
-            0x58000050,
-            0xd61f0200
-        };
-
-        uint8_t patch[16];
-        memcpy(patch, jumpInstrs, 8);
-        uintptr_t replaceAddr = (uintptr_t)replace;
-        memcpy(patch + 8, &replaceAddr, 8);
-
-        return Memory::Patch((uintptr_t)target, std::vector<uint8_t>(patch, patch + 16));
-    }
-
-    void Initialize() {
-        uintptr_t base = Memory::GetBaseAddress();
+        // ARM64 absolute jump instructions
+        uint32_t patch[4];
+        patch[0] = 0x58000050; // LDR X16, #8
+        patch[1] = 0xD61F0200; // BR X16
         
-        void* targetActorTick = (void*)(base + actorTickAddr);
-        void* targetPlayerNormalTick = (void*)(base + playerNormalTickAddr);
+        uintptr_t targetAddr = (uintptr_t)replace;
+        patch[2] = targetAddr & 0xFFFFFFFF;
+        patch[3] = (targetAddr >> 32) & 0xFFFFFFFF;
 
-        HookFunction(targetActorTick, (void*)&hkActorTick, (void**)&oActorTick);
-        HookFunction(targetPlayerNormalTick, (void*)&hkPlayerNormalTick, (void**)&oPlayerNormalTick);
-        HookFunction((void*)(base + getReachDistanceAddr), (void*)&hkGetReachDistance, (void**)&oGetReachDistance);
-        HookFunction((void*)(base + lerpMotionAddr), (void*)&hkLerpMotion, (void**)&oLerpMotion);
+        return Memory::PatchMemory(target, patch, sizeof(patch));
     }
 
     void SetupMinecraftHooks() {
-        Initialize();
+        uintptr_t base = Memory::GetBaseAddress();
+        
+        HookFunction((void*)(base + actorTickAddr), (void*)&hkActorTick, (void**)&oActorTick);
+        HookFunction((void*)(base + playerNormalTickAddr), (void*)&hkPlayerNormalTick, (void**)&oPlayerNormalTick);
     }
 }
